@@ -15,41 +15,45 @@ process.env.NODE_ICU_DATA = "/usr/share/nodejs/node-icu-data";
 process.env.LANG = "en_US.UTF-8";
 
 // --- Import Database Models ---
-const User = require("./User");
-const Progress = require("./Progress");
+// IMPORTANT: These paths assume 'User.js' and 'Progress.js' are in a 'models' subdirectory.
+const User = require("./models/User");
+const Progress = require("./models/Progress");
 
 // --- Import Command Modules ---
-const startCommand = require("./start");
-const dailyCommands = require("./daily");
-const paymentCommands = require("./payment");
-const vipCommands = require("./vip");
-const adminCommands = require("./admin");
-const badgesCommands = require("./badges");
-const quotesCommands = require("./khmer-quotes");
-const bookingCommands = require("./booking");
-const tierFeatures = require("./tier-features");
-const marketingCommands = require("./marketing");
-const marketingContent = require("./marketing-content");
-const extendedContent = require("./extended-content");
-const thirtyDayAdmin = require("./30day-admin");
-const previewCommands = require("./preview");
-const freeTools = require("./free-tools");
-const financialQuiz = require("./financial-quiz");
-const toolsTemplates = require("./tools-templates");
+// IMPORTANT: These paths assume command files are in a 'commands' subdirectory.
+const startCommand = require("./commands/start");
+const dailyCommands = require("./commands/daily");
+const paymentCommands = require("./commands/payment");
+const vipCommands = require("./commands/vip");
+const adminCommands = require("./commands/admin");
+const badgesCommands = require("./commands/badges");
+const quotesCommands = require("./commands/khmer-quotes"); // Corrected file name
+const bookingCommands = require("./commands/booking");
+const tierFeatures = require("./commands/tier-features");
+const marketingCommands = require("./commands/marketing");
+const marketingContent = require("./commands/marketing-content");
+const extendedContent = require("./commands/extended-content");
+const thirtyDayAdmin = require("./commands/30day-admin");
+const previewCommands = require("./commands/preview");
+const freeTools = require("./commands/free-tools");
+const financialQuiz = require("./commands/financial-quiz");
+const toolsTemplates = require("./commands/tools-templates");
 
 // --- Import Service Modules ---
-const scheduler = require("./scheduler");
-const analytics = require("./analytics");
-const celebrations = require("./celebrations");
-const progressBadges = require("./progress-badges");
-const emojiReactions = require("./emoji-reactions");
-const AccessControl = require("./access-control");
-const ContentScheduler = require("./content-scheduler");
-const ConversionOptimizer = require("./conversion-optimizer");
+// IMPORTANT: These paths assume service files are in a 'services' subdirectory.
+const scheduler = require("./services/scheduler");
+const analytics = require("./services/analytics");
+const celebrations = require("./services/celebrations");
+const progressBadges = require("./services/progress-badges");
+const emojiReactions = require("./services/emoji-reactions");
+const AccessControl = require("./services/access-control");
+const ContentScheduler = require("./services/content-scheduler");
+const ConversionOptimizer = require("./services/conversion-optimizer");
 
 // --- Import Utility Modules ---
-const { sendLongMessage } = require("./message-splitter");
-const { default: fetch } = require("node-fetch"); // Ensure node-fetch is imported correctly
+// IMPORTANT: These paths assume utility files are in a 'utils' subdirectory.
+const { sendLongMessage } = require("./utils/message-splitter");
+const fetch = require("node-fetch"); // Ensure node-fetch is imported correctly
 
 // Define a consistent message chunk size for splitting long messages
 const MESSAGE_CHUNK_SIZE = 800;
@@ -65,8 +69,36 @@ const processedMessages = new Set();
 let lastProcessTime = {};
 
 function isDuplicateMessage(msg) {
-  // DISABLED FOR WEBHOOK MODE - Let all messages through
-  console.log(`[isDuplicateMessage] Processing message: ${msg.chat.id}-${msg.message_id}`);
+  const messageId = `${msg.chat.id}-${msg.message_id}`;
+  const now = Date.now();
+
+  // Only block if same message processed within last 3 seconds (for webhook mode)
+  if (
+    processedMessages.has(messageId) &&
+    lastProcessTime[messageId] &&
+    now - lastProcessTime[messageId] < 3000
+  ) {
+    console.log(
+      `[isDuplicateMessage] Blocking recent duplicate: ${messageId} within 3s`,
+    );
+    return true;
+  }
+
+  processedMessages.add(messageId);
+  lastProcessTime[messageId] = now;
+
+  // Clean up old entries every 50 messages
+  if (processedMessages.size > 50) {
+    const cutoff = now - 30000; // 30 seconds
+    Object.keys(lastProcessTime).forEach((id) => {
+      if (lastProcessTime[id] < cutoff) {
+        processedMessages.delete(id);
+        delete lastProcessTime[id];
+      }
+    });
+  }
+
+  console.log(`[isDuplicateMessage] Processing message: ${messageId}`);
   return false;
 }
 
@@ -95,12 +127,15 @@ app.use((req, res, next) => {
   next();
 });
 
-// Function to get the dynamic Replit URL
-function getReplitUrl() {
-  if (process.env.REPL_SLUG && process.env.REPL_OWNER) {
-    return `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co`;
+// Function to get the dynamic Railway URL
+function getRailwayUrl() {
+  // Railway typically provides a static URL via RAILWAY_STATIC_URL or RAILWAY_PUBLIC_DOMAIN
+  // Use RAILWAY_STATIC_URL if available, otherwise fallback to a common Railway pattern
+  if (process.env.RAILWAY_STATIC_URL) {
+    return process.env.RAILWAY_STATIC_URL;
   }
   // Fallback for local testing or if env vars are not set
+  // You might need to adjust this if your Railway setup uses a different domain pattern
   return `http://localhost:${process.env.PORT || 5000}`;
 }
 
@@ -109,8 +144,8 @@ async function initBotWebhook() {
   console.log("Starting bot initialization process for webhooks...");
 
   if (!process.env.BOT_TOKEN) {
-    console.error("❌ ERROR: BOT_TOKEN is not set in env.txt!");
-    console.error("Please ensure env.txt exists and contains BOT_TOKEN.");
+    console.error("❌ ERROR: BOT_TOKEN is not set in environment variables!");
+    console.error("Please ensure BOT_TOKEN is configured on Railway.");
     process.exit(1);
   } else {
     console.log("✅ BOT_TOKEN loaded successfully.");
@@ -141,15 +176,11 @@ async function initBotWebhook() {
       );
     }
 
-    // 3. Construct the webhook URL - FORCE CORRECT DOMAIN (not .repl.co)
-    const correctDomain = "https://money-flow-tracker-chendasum168.replit.app";
-    const actualWebhookUrl = `${correctDomain}/bot${process.env.BOT_TOKEN}`;
+    // 3. Construct the webhook URL using the Railway URL
+    const actualWebhookUrl = `${getRailwayUrl()}/bot${process.env.BOT_TOKEN}`;
 
-    // Debug: Show which domain we're using
-    console.log("🔍 Domain check - getReplitUrl():", getReplitUrl());
-    console.log("🔍 Forced correct domain:", correctDomain);
-    console.log("🔍 Using domain:", correctDomain, "(FORCED)");
-
+    // Debug: Show which URL we're using
+    console.log("🔍 Using Railway URL:", getRailwayUrl());
     console.log(`Attempting to set webhook to: ${actualWebhookUrl}`);
     const setWebhookResult = await bot.setWebHook(actualWebhookUrl);
     console.log("✅ Webhook set successfully:", setWebhookResult);
@@ -223,7 +254,7 @@ async function initBotWebhook() {
     console.error("Unhandled Rejection at:", promise, "reason:", reason);
     process.exit(1);
   });
-})();
+})(); // End of IIFE
 
 // ========================================
 // TELEGRAM BOT COMMAND HANDLERS
@@ -349,10 +380,13 @@ bot.onText(/\/payment/i, async (msg) => {
 bot.onText(/^\/day$/i, async (msg) => {
   if (isDuplicateMessage(msg)) return;
   try {
-    const user = await User.findOne({ telegramId: msg.from.id });
+    const user = await User.findOne({ telegram_id: msg.from.id }); // Use telegram_id for consistency
     const chatId = msg.chat.id;
+    const isPaid = user?.is_paid === true || user?.is_paid === 't'; // Check for 't' or true
 
-    if (!user || !user.isPaid) {
+    console.log(`[Day Intro] User ${msg.from.id} - isPaid: ${isPaid}, user object:`, user);
+    
+    if (!user || !isPaid) {
       await bot.sendMessage(
         chatId,
         "🔒 សូមទូទាត់មុនដើម្បីចូលរួមកម្មវិធី។ ប្រើ /pricing ដើម្បីមើលព័ត៌មាន។",
@@ -360,7 +394,7 @@ bot.onText(/^\/day$/i, async (msg) => {
       return;
     }
 
-    const progress = (await Progress.findOne({ userId: msg.from.id })) || {};
+    const progress = (await Progress.findOne({ user_id: msg.from.id })) || {}; // Use user_id for consistency
 
     const introMessage = `✨ 7-Day Money Flow Reset™ ✨
 
@@ -392,14 +426,14 @@ bot.onText(/^\/day$/i, async (msg) => {
       MESSAGE_CHUNK_SIZE,
     );
 
-    if (progress.currentDay && progress.currentDay > 1) {
+    if (progress.current_day && progress.current_day > 1) { // Use current_day
       setTimeout(async () => {
         const progressMessage = `📊 វឌ្ឍនភាពរបស់អ្នក:
 
-🔥 ថ្ងៃបានបញ្ចប់: ${progress.currentDay - 1}/7
+🔥 ថ្ងៃបានបញ្ចប់: ${progress.current_day - 1}/7
 📈 ភាគរយបញ្ចប់: ${progress.completionPercentage || 0}%
 
-🎯 ថ្ងៃបន្ទាប់: /day${progress.currentDay}`;
+🎯 ថ្ងៃបន្ទាប់: /day${progress.current_day}`;
         await bot.sendMessage(chatId, progressMessage);
       }, 1500);
     }
@@ -414,6 +448,20 @@ bot.onText(/\/day1/i, async (msg) => {
   console.log("📚 [DAY1] Processing /day1 for user:", msg.from.id);
   
   try {
+    // Ensure user is paid before delivering daily content
+    const user = await User.findOne({ telegram_id: msg.from.id });
+    const isPaid = user?.is_paid === true || user?.is_paid === 't';
+
+    console.log(`[DAY1 Access Check] User ${msg.from.id} - isPaid: ${isPaid}, user object:`, user);
+
+    if (!user || !isPaid) {
+      await bot.sendMessage(
+        msg.chat.id,
+        "🔒 សូមទូទាត់មុនដើម្បីចូលរួមកម្មវិធី។ ប្រើ /pricing ដើម្បីមើលព័ត៌មាន។",
+      );
+      return;
+    }
+
     // Your original comprehensive Day 1 content from daily.js
     const day1Content = `🔱 ថ្ងៃទី ១: ចាប់ផ្តើមស្គាល់លំហូរលុយរបស់អ្នក + រកលុយភ្លាម! 🔱
 ---
@@ -496,6 +544,16 @@ bot.onText(/\/day2/i, async (msg) => {
   console.log("📚 [DAY2] Processing /day2 for user:", msg.from.id);
   
   try {
+    // Ensure user is paid before delivering daily content
+    const user = await User.findOne({ telegram_id: msg.from.id });
+    const isPaid = user?.is_paid === true || user?.is_paid === 't';
+    if (!user || !isPaid) {
+      await bot.sendMessage(
+        msg.chat.id,
+        "🔒 សូមទូទាត់មុនដើម្បីចូលរួមកម្មវិធី។ ប្រើ /pricing ដើម្បីមើលព័ត៌មាន។",
+      );
+      return;
+    }
     // Use your original comprehensive Day 2 content
     await dailyCommands.handle(msg, ['/day2', '2'], bot);
     console.log("✅ [DAY2] Full Day 2 content sent to user:", msg.from.id);
@@ -512,6 +570,16 @@ bot.onText(/\/day([3-7])/i, async (msg, match) => {
   console.log(`📚 [DAY${dayNumber}] Processing /day${dayNumber} for user:`, msg.from.id);
   
   try {
+    // Ensure user is paid before delivering daily content
+    const user = await User.findOne({ telegram_id: msg.from.id });
+    const isPaid = user?.is_paid === true || user?.is_paid === 't';
+    if (!user || !isPaid) {
+      await bot.sendMessage(
+        msg.chat.id,
+        "🔒 សូមទូទាត់មុនដើម្បីចូលរួមកម្មវិធី។ ប្រើ /pricing ដើម្បីមើលព័ត៌មាន។",
+      );
+      return;
+    }
     // Use your original comprehensive daily content
     await dailyCommands.handle(msg, [`/day${dayNumber}`, dayNumber], bot);
     console.log(`✅ [DAY${dayNumber}] Full Day ${dayNumber} content sent to user:`, msg.from.id);
@@ -526,9 +594,10 @@ bot.onText(/\/day([3-7])/i, async (msg, match) => {
 bot.onText(/\/vip_program_info/i, async (msg) => {
   if (isDuplicateMessage(msg)) return;
   try {
-    const user = await User.findOne({ telegramId: msg.from.id });
+    const user = await User.findOne({ telegram_id: msg.from.id }); // Use telegram_id
+    const isPaid = user?.is_paid === true || user?.is_paid === 't';
 
-    if (!user || !user.isPaid) {
+    if (!user || !isPaid) {
       await bot.sendMessage(
         msg.chat.id,
         "🔒 សូមទូទាត់មុនដើម្បីចូលរួមកម្មវិធី VIP។ ប្រើ /pricing ដើម្បីមើលព័ត៌មាន។",
@@ -546,9 +615,10 @@ bot.onText(/\/vip_program_info/i, async (msg) => {
 bot.onText(/\/vip$/i, async (msg) => {
   if (isDuplicateMessage(msg)) return;
   try {
-    const user = await User.findOne({ telegramId: msg.from.id });
+    const user = await User.findOne({ telegram_id: msg.from.id }); // Use telegram_id
+    const isPaid = user?.is_paid === true || user?.is_paid === 't';
 
-    if (!user || !user.isPaid) {
+    if (!user || !isPaid) {
       await bot.sendMessage(
         msg.chat.id,
         "🔒 សូមទូទាត់មុនដើម្បីចូលរួមកម្មវិធី VIP។ ប្រើ /pricing ដើម្បីមើលព័ត៌មាន។",
@@ -652,10 +722,10 @@ bot.on("message", async (msg) => {
 
   if (msg.text && msg.text.toUpperCase() === "VIP APPLY") {
     try {
-      // FIXED: Use correct PostgreSQL field name
+      // Use telegram_id for consistency
       const user = await User.findOne({ telegram_id: msg.from.id });
 
-      // FIXED: Check is_paid properly (PostgreSQL stores as 't'/'f' strings)
+      // Check is_paid properly (PostgreSQL stores as 't'/'f' strings)
       const isPaid = user?.is_paid === true || user?.is_paid === "t";
 
       if (!user || !isPaid) {
@@ -677,7 +747,7 @@ bot.on("message", async (msg) => {
 });
 
 // Progress Tracking Admin Commands
-const progressTracker = require("./progress-tracker");
+const progressTracker = require("./commands/progress-tracker"); // Corrected path
 bot.onText(/\/admin_stuck/i, async (msg) => {
   if (isDuplicateMessage(msg)) return;
   try {
@@ -737,7 +807,7 @@ bot.onText(/\/admin_photos (.+)/i, async (msg, match) => {
 bot.onText(/\/admin_menu|\/admin/i, async (msg) => {
   if (isDuplicateMessage(msg)) return;
   const adminId = parseInt(process.env.ADMIN_CHAT_ID);
-  const secondaryAdminId = 484389665;
+  const secondaryAdminId = 484389665; // Assuming this is a static secondary admin ID
   if (![adminId, secondaryAdminId].includes(msg.from.id)) {
     await bot.sendMessage(
       msg.chat.id,
@@ -918,8 +988,12 @@ bot.onText(/\/extended(\d+)/i, async (msg, match) => {
     return;
   }
   try {
-    const user = await User.findOne({ telegramId: msg.from.id });
-    if (!user || !user.isPaid) {
+    const user = await User.findOne({ telegram_id: msg.from.id }); // Use telegram_id
+    const isPaid = user?.is_paid === true || user?.is_paid === 't';
+    
+    console.log(`[Extended Content] User ${msg.from.id} - isPaid: ${isPaid}, user object:`, user);
+
+    if (!user || !isPaid) {
       await bot.sendMessage(
         msg.chat.id,
         "🔒 សូមទូទាត់មុនដើម្បីចូលប្រើមាតិកាបន្ថែម។ ប្រើ /pricing ដើម្បីមើលព័ត៌មាន។",
@@ -1099,8 +1173,12 @@ bot.onText(/\/income_analysis/i, async (msg) => {
 bot.onText(/\/badges/i, async (msg) => {
   if (isDuplicateMessage(msg)) return;
   try {
-    const user = await User.findOne({ telegramId: msg.from.id });
-    if (!user || !user.isPaid) {
+    const user = await User.findOne({ telegram_id: msg.from.id }); // Use telegram_id
+    const isPaid = user?.is_paid === true || user?.is_paid === 't';
+    
+    console.log(`[Badges] User ${msg.from.id} - isPaid: ${isPaid}, user object:`, user);
+
+    if (!user || !isPaid) {
       await bot.sendMessage(
         msg.chat.id,
         "🔒 សូមទូទាត់មុនដើម្បីមើល badges។ ប្រើ /pricing ដើម្បីមើលព័ត៌ណី។",
@@ -1118,8 +1196,12 @@ bot.onText(/\/badges/i, async (msg) => {
 bot.onText(/\/progress/i, async (msg) => {
   if (isDuplicateMessage(msg)) return;
   try {
-    const user = await User.findOne({ telegramId: msg.from.id });
-    if (!user || !user.isPaid) {
+    const user = await User.findOne({ telegram_id: msg.from.id }); // Use telegram_id
+    const isPaid = user?.is_paid === true || user?.is_paid === 't';
+
+    console.log(`[Progress] User ${msg.from.id} - isPaid: ${isPaid}, user object:`, user);
+
+    if (!user || !isPaid) {
       await bot.sendMessage(
         msg.chat.id,
         "🔒 សូមទូទាត់មុនដើម្បីមើលការរីកចម្រើន។ ប្រើ /pricing ដើម្បីមើលព័ត៌មាន។",
@@ -1137,8 +1219,12 @@ bot.onText(/\/progress/i, async (msg) => {
 bot.onText(/\/milestones/i, async (msg) => {
   if (isDuplicateMessage(msg)) return;
   try {
-    const user = await User.findOne({ telegramId: msg.from.id });
-    if (!user || !user.isPaid) {
+    const user = await User.findOne({ telegram_id: msg.from.id }); // Use telegram_id
+    const isPaid = user?.is_paid === true || user?.is_paid === 't';
+
+    console.log(`[Milestones] User ${msg.from.id} - isPaid: ${isPaid}, user object:`, user);
+
+    if (!user || !isPaid) {
       await bot.sendMessage(
         msg.chat.id,
         "🔒 សូមទូទាត់មុនដើម្បីមើលសមិទ្ធផល។ ប្រើ /pricing ដើម្បីមើលព័ត៌មាន។",
@@ -1156,8 +1242,12 @@ bot.onText(/\/milestones/i, async (msg) => {
 bot.onText(/\/streak/i, async (msg) => {
   if (isDuplicateMessage(msg)) return;
   try {
-    const user = await User.findOne({ telegramId: msg.from.id });
-    if (!user || !user.isPaid) {
+    const user = await User.findOne({ telegram_id: msg.from.id }); // Use telegram_id
+    const isPaid = user?.is_paid === true || user?.is_paid === 't';
+
+    console.log(`[Streak] User ${msg.from.id} - isPaid: ${isPaid}, user object:`, user);
+
+    if (!user || !isPaid) {
       await bot.sendMessage(
         msg.chat.id,
         "🔒 សូមទូទាត់មុនដើម្បីមើលការធ្វើបន្តបន្ទាប់។ ប្រើ /pricing ដើម្បីមើលព័ត៌មាន។",
@@ -1240,8 +1330,8 @@ bot.onText(/\/quote_success/i, async (msg) => {
 bot.onText(/\/faq|FAQ|faq/i, async (msg) => {
   if (isDuplicateMessage(msg)) return;
   try {
-    const user = await User.findOne({ telegramId: msg.from.id });
-    const isPaid = user && user.isPaid;
+    const user = await User.findOne({ telegram_id: msg.from.id }); // Use telegram_id
+    const isPaid = user && (user.is_paid === true || user.is_paid === 't'); // Use is_paid
     const isPremiumOrVip =
       user && (user.tier === "premium" || user.tier === "vip");
     const isVip = user && user.tier === "vip";
@@ -1384,7 +1474,7 @@ bot.onText(/\/faq|FAQ|faq/i, async (msg) => {
 - 💬 សម្រង់ប្រចាំថ្ងៃ → /quote
 - 🎭 ប្រាជ្ញាចៃដន្យ → /wisdom
 - 📖 ប្រភេទសម្រង់ → /quote_categories
-- 🏛️ ប្រាជ្ញាប្រពៃណី → /quote_traditional
+- 🏛️️ ប្រាជ្ញាប្រពៃណី → /quote_traditional
 - 💰 ចិត្តគំនិតហិរញ្ញវត្ថុ → /quote_financial
 - 💪 ការលើកទឹកចិត្ត → /quote_motivation
 - 🏆 ជោគជ័យ → /quote_success
@@ -1478,7 +1568,7 @@ ${
 
 💬 ជំនួយ: សរសេរមកដោយផ្ទាល់!`;
 
-    await bot.sendMessage(bot, msg.chat.id, basicHelp); // Pass bot instance
+    await bot.sendMessage(msg.chat.id, basicHelp); // Corrected: removed duplicate 'bot'
   }
 });
 
@@ -1487,7 +1577,7 @@ bot.onText(/\/status|ស្ថានភាព/i, async (msg) => {
   if (isDuplicateMessage(msg)) return;
   try {
     const userId = msg.from.id;
-    const user = await User.findOne({ telegram_id: userId });
+    const user = await User.findOne({ telegram_id: userId }); // Use telegram_id
 
     if (!user) {
       await bot.sendMessage(
@@ -1497,8 +1587,8 @@ bot.onText(/\/status|ស្ថានភាព/i, async (msg) => {
       return;
     }
 
-    const progress = await Progress.findOne({ user_id: userId });
-    const isPaid = user?.is_paid === true || user?.is_paid === 't';
+    const progress = await Progress.findOne({ user_id: userId }); // Use user_id
+    const isPaid = user?.is_paid === true || user?.is_paid === 't'; // Use is_paid
 
     let statusMessage = `📊 ស្ថានភាពគណនីរបស់អ្នក:
 
@@ -1519,7 +1609,7 @@ bot.onText(/\/status|ស្ថានភាព/i, async (msg) => {
       if (progress) {
         const completedDays = [];
         for (let i = 1; i <= 7; i++) {
-          if (progress[`day${i}_completed`]) {
+          if (progress[`day${i}_completed`]) { // Use dayX_completed
             completedDays.push(`Day ${i}`);
           }
         }
@@ -1551,11 +1641,11 @@ bot.onText(/\/status|ស្ថានភាព/i, async (msg) => {
 bot.onText(/\/whoami/i, async (msg) => {
   if (isDuplicateMessage(msg)) return;
   try {
-    const user = await User.findOne({ telegram_id: msg.from.id });
+    const user = await User.findOne({ telegram_id: msg.from.id }); // Use telegram_id
     const adminId = parseInt(process.env.ADMIN_CHAT_ID);
     const secondaryAdminId = 484389665;
     const isAdmin = msg.from.id === adminId || msg.from.id === secondaryAdminId;
-    const isPaid = user?.is_paid === true || user?.is_paid === 't';
+    const isPaid = user?.is_paid === true || user?.is_paid === 't'; // Use is_paid
 
     let response = `🔍 ព័ត៌មានរបស់អ្នក:\n\n`;
     response += `• Chat ID: ${msg.chat.id}\n`;
@@ -1697,16 +1787,12 @@ bot.on("message", async (msg) => {
   const userId = msg.from.id;
 
   try {
-    if (typeof User.updateLastActive === "function") {
-      await User.updateLastActive(userId);
-    } else {
-      // FIXED: Use correct PostgreSQL field name
-      await User.findOneAndUpdate(
-        { telegram_id: userId },
-        { last_active: new Date() },
-        { new: true },
-      );
-    }
+    // Use telegram_id for consistency
+    await User.findOneAndUpdate(
+      { telegram_id: userId },
+      { last_active: new Date() },
+      { new: true },
+    );
   } catch (error) {
     console.error("Error updating lastActive timestamp:", error);
   }
@@ -1721,7 +1807,7 @@ bot.on("message", async (msg) => {
       (await freeTools.processToolResponse(
         msg,
         bot,
-        await User.findOne({ telegram_id: userId }),
+        await User.findOne({ telegram_id: userId }), // Use telegram_id
       ))
     ) {
       return;
@@ -1730,7 +1816,7 @@ bot.on("message", async (msg) => {
     console.error("Error processing free tools response:", error);
   }
 
-  // FIXED: Don't return early for these text messages - process them properly
+  // Handle specific text commands that are not /commands
   if (
     text.includes("ready for day") ||
     (text.includes("day") && text.includes("complete")) ||
@@ -1744,7 +1830,6 @@ bot.on("message", async (msg) => {
     console.log("Lowercase text:", text);
     console.log("Calling handleTextResponse...");
 
-    // Call the proper text response handler instead of returning
     await handleTextResponse(msg);
     return;
   }
@@ -1899,7 +1984,7 @@ bot.onText(/CAPITAL CLARITY|capital clarity/i, async (msg) => {
 
 🇰🇭 ការផ្តោតលើកម្ពុជា: យើងយល់ដឹងពីរចនាសម្ព័ន្ធអាជីវកម្មក្នុងស្រុក ប្រព័ន្ធធនាគារ និងឱកាសរីកចម្រើន។
 
-⚠️ សំខានg��: នេះគឺជាយុទ្ធសាស្ត្រមូលធនកម្រិតខ្ពស់សម្រាប់ម្ចាស់អាជីវកម្មធ្ងន់ធ្ងរដែលគ្រប់គ្រងមូលធនសំខាន់ៗ។
+⚠️ សំខាន់: នេះគឺជាយុទ្ធសាស្ត្រមូលធនកម្រិតខ្ពស់សម្រាប់ម្ចាស់អាជីវកម្មធ្ងន់ធ្ងរដែលគ្រប់គ្រងមូលធនសំខាន់ៗ។
 
 ត្រៀមខ្លួនដើម្បីបង្កើនប្រសិទ្ធភាពប្រព័ន្ធមូលធនរបស់អ្នកហើយឬនៅ? សូមផ្តល់ព័ត៌មានលម្អិតអំពីលក្ខណៈសម្បត្តិខាងលើ។
 
@@ -1925,7 +2010,7 @@ bot.onText(/CAPITAL CLARITY|capital clarity/i, async (msg) => {
 
 អ្នកចាប់អារម្មណ៍កម្រិតខ្ពស់ចង់បង្កើនប្រសិទ្ធភាពរចនាសម្ព័ន្ធមូលធន។
 
-អ្នកប្រើប្រាស់ត្រូវផ្តល់ព័ត៌មានលក្ខណៈសម្បត្តិ។`,
+អ្នកប្រើប្រាស់ត្រូវផ្តល់ព័ត៌ការលក្ខណៈសម្បត្តិ។`,
       );
     }
   } catch (error) {
@@ -1939,9 +2024,10 @@ bot.onText(/CAPITAL CLARITY|capital clarity/i, async (msg) => {
 
 async function handleVipApply(msg) {
   try {
-    const user = await User.findOne({ telegramId: msg.from.id });
+    const user = await User.findOne({ telegram_id: msg.from.id }); // Use telegram_id
+    const isPaid = user?.is_paid === true || user?.is_paid === 't';
 
-    if (!user || !user.isPaid) {
+    if (!user || !isPaid) {
       await bot.sendMessage(
         msg.chat.id,
         "🔒 សូមទូទាត់មុនដើម្បីចូលរួមកម្មវិធី VIP។ ប្រើ /pricing ដើម្បីមើលព័ត៌មាន។",
@@ -1985,9 +2071,9 @@ async function handleVipApply(msg) {
         adminId,
         `🌟 VIP APPLICATION REQUEST:
 
-អ្នកប្រើប្រាស់: ${user.firstName} ${user.lastName || ""}
-ID: ${user.telegramId}
-ស្ថានភាព: ${user.isPaid ? "បានទូទាត់" : "មិនទាន់ទូទាត់"} ${user.isVip ? "| VIP រួចហើយ" : ""}
+អ្នកប្រើប្រាស់: ${user.first_name} ${user.last_name || ""}
+ID: ${user.telegram_id}
+ស្ថានភាព: ${isPaid ? "បានទូទាត់" : "មិនទាន់ទូទាត់"} ${user.is_vip ? "| VIP រួចហើយ" : ""}
 
 អ្នកប្រើប្រាស់ចង់ដាក់ពាក្យសម្រាប់កម្មវិធី VIP។
 តាមដានព័ត៌មានពាក្យសុំរបស់ពួកគេ។`,
@@ -2069,8 +2155,7 @@ async function handleTextResponse(msg) {
   const text = msg.text.toUpperCase();
 
   try {
-    // FIXED: Use correct PostgreSQL field name
-    const user = await User.findOne({ telegram_id: userId });
+    const user = await User.findOne({ telegram_id: userId }); // Use telegram_id
 
     if (!user) {
       await bot.sendMessage(
@@ -2085,17 +2170,11 @@ async function handleTextResponse(msg) {
       text.includes(action),
     );
 
-    // FIXED: Check is_paid properly (PostgreSQL stores as 't'/'f' strings)
-    const isPaid = user.is_paid === "t" || user.is_paid === true;
+    const isPaid = user.is_paid === "t" || user.is_paid === true; // Use is_paid
 
-    console.log(`Text response access check for user ${userId}:`, {
-      text: text,
-      user_found: !!user,
-      is_paid_raw: user?.is_paid,
-      is_paid_boolean: isPaid,
-      is_restricted_action: isRestrictedAction,
-      tier: user?.tier,
-    });
+    console.log(`[handleTextResponse] User ${userId} - text: "${text}"`);
+    console.log(`[handleTextResponse] isRestrictedAction: ${isRestrictedAction}, isPaid: ${isPaid}`);
+    console.log(`[handleTextResponse] User object from DB:`, user);
 
     if (isRestrictedAction && !isPaid) {
       await bot.sendMessage(
@@ -2126,13 +2205,10 @@ async function handleReadyForDay1(msg) {
     console.log("User ID:", userId);
     console.log("Message text:", msg.text);
 
-    // FIXED: Use correct PostgreSQL field name
-    const user = await User.findOne({ telegram_id: userId });
+    const user = await User.findOne({ telegram_id: userId }); // Use telegram_id
+    const isPaid = user?.is_paid === true || user?.is_paid === "t"; // Use is_paid
 
-    // FIXED: Check is_paid properly (PostgreSQL stores as 't'/'f' strings)
-    const isPaid = user?.is_paid === true || user?.is_paid === "t";
-
-    console.log(`READY FOR DAY 1 access check for user ${userId}:`, {
+    console.log(`[handleReadyForDay1] READY FOR DAY 1 access check for user ${userId}:`, {
       user_found: !!user,
       is_paid_raw: user?.is_paid,
       is_paid_boolean: isPaid,
@@ -2147,12 +2223,11 @@ async function handleReadyForDay1(msg) {
       return;
     }
 
-    // FIXED: Use correct PostgreSQL field names for Progress table
     await Progress.findOneAndUpdate(
-      { user_id: userId },
+      { user_id: userId }, // Use user_id
       {
         ready_for_day_1: true,
-        current_day: 1,
+        current_day: 1, // Use current_day
       },
       { upsert: true },
     );
@@ -2179,17 +2254,31 @@ async function handleDayComplete(msg) {
 
   const dayNumber = parseInt(dayMatch[1]);
 
-  const updateField = `day${dayNumber}Completed`;
-  const completedAtField = `day${dayNumber}CompletedAt`;
+  // Ensure user is paid before marking day complete
+  const user = await User.findOne({ telegram_id: msg.from.id }); // Use telegram_id
+  const isPaid = user?.is_paid === true || user?.is_paid === 't'; // Use is_paid
+
+  console.log(`[handleDayComplete] User ${msg.from.id} - Day ${dayNumber} complete attempt. isPaid: ${isPaid}`);
+
+  if (!user || !isPaid) {
+    await bot.sendMessage(
+      msg.chat.id,
+      "🔒 សូមទូទាត់មុនដើម្បីសម្គាល់ថ្ងៃបញ្ចប់។ ប្រើ /pricing ដើម្បីមើលព័ត៌មាន។",
+    );
+    return;
+  }
+
+  const updateField = `day${dayNumber}_completed`; // Use dayX_completed
+  const completedAtField = `day${dayNumber}_completed_at`; // Use dayX_completed_at
   const nextDay = dayNumber + 1;
 
-  // FIXED: Use correct PostgreSQL field names for Progress table
   await Progress.findOneAndUpdate(
-    { user_id: msg.from.id },
+    { user_id: msg.from.id }, // Use user_id
     {
       [updateField]: true,
       [completedAtField]: new Date(),
-      current_day: nextDay <= 7 ? nextDay : 7,
+      completion_percentage: Math.floor((dayNumber / 7) * 100), // Use completion_percentage
+      current_day: nextDay <= 7 ? nextDay : 7, // Use current_day
     },
     { upsert: true },
   );
@@ -2222,13 +2311,13 @@ async function handleDayComplete(msg) {
 
   setTimeout(async () => {
     try {
-      const user = await User.findOne({ telegramId: msg.from.id });
-      const progress = await Progress.findOne({ userId: msg.from.id });
+      const user = await User.findOne({ telegram_id: msg.from.id }); // Use telegram_id
+      const progress = await Progress.findOne({ user_id: msg.from.id }); // Use user_id
 
       if (user && progress) {
         const completedDays = [];
         for (let i = 1; i <= 7; i++) {
-          if (progress[`day${i}Completed`]) {
+          if (progress[`day${i}_completed`]) { // Use dayX_completed
             completedDays.push(i);
           }
         }
@@ -2318,7 +2407,7 @@ async function handleDayComplete(msg) {
 
   if (dayNumber === 3) {
     setTimeout(async () => {
-      const user = await User.findOne({ telegramId: msg.from.id });
+      const user = await User.findOne({ telegram_id: msg.from.id }); // Use telegram_id
       if (!user || user.tier === "premium" || user.tier === "vip") return;
 
       const upsellMessage = `🔥 ${msg.from.first_name || "មិត្ត"}, អ្នកកំពុងធ្វើបានល្អ!
@@ -2388,6 +2477,20 @@ Upgrade ទៅ Premium ($97) ឥឡូវនេះ!
 async function handleProgramComplete(msg) {
   if (isDuplicateMessage(msg)) return;
   try {
+    // Ensure user is paid before marking program complete
+    const user = await User.findOne({ telegram_id: msg.from.id }); // Use telegram_id
+    const isPaid = user?.is_paid === true || user?.is_paid === 't'; // Use is_paid
+
+    console.log(`[handleProgramComplete] User ${msg.from.id} - Program complete attempt. isPaid: ${isPaid}`);
+
+    if (!user || !isPaid) {
+      await bot.sendMessage(
+        msg.chat.id,
+        "🔒 សូមទូទាត់មុនដើម្បីសម្គាល់កម្មវិធីបញ្ចប់។ ប្រើ /pricing ដើម្បីមើលព័ត៌មាន។",
+      );
+      return;
+    }
+
     const programCelebration =
       celebrations.programCompleteCelebration(`🎯 ជំហានបន្ទាប់:
 1️⃣ អនុវត្តផែនការ ៣០ ថ្ងៃ
@@ -2415,10 +2518,10 @@ VIP Advanced Program ចាប់ផ្តើមខែក្រោយ!
     }, 2000);
 
     await Progress.findOneAndUpdate(
-      { userId: msg.from.id },
+      { user_id: msg.from.id }, // Use user_id
       {
-        programCompleted: true,
-        programCompletedAt: new Date(),
+        program_completed: true, // Use program_completed
+        program_completed_at: new Date(), // Use program_completed_at
       },
       { upsert: true },
     );
@@ -2542,7 +2645,7 @@ app.get("/api", (req, res) => {
       "A Telegram bot that delivers a 7-day financial education program in Khmer language",
     status: "Running",
     version: "2.0.0",
-    domain: getReplitUrl(), // Use dynamic Replit URL
+    domain: getRailwayUrl(), // Use dynamic Railway URL
     timestamp: new Date().toISOString(),
     automation: "Enhanced with 7-Day Money Flow automation features",
     endpoints: {
@@ -2561,7 +2664,7 @@ app.get("/", (req, res) => {
       "A Telegram bot that delivers a 7-day financial education program in Khmer language",
     status: "Running",
     version: "2.0.0",
-    domain: getReplitUrl(), // Use dynamic Replit URL
+    domain: getRailwayUrl(), // Use dynamic Railway URL
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     memory: process.memoryUsage(),
@@ -2582,7 +2685,7 @@ app.get("/health", (req, res) => {
     uptime: process.uptime(),
     memory: process.memoryUsage(),
     automation: "7-Day automation active",
-    webhookUrl: `${getReplitUrl()}/bot${process.env.BOT_TOKEN}`, // Use dynamic Replit URL
+    webhookUrl: `${getRailwayUrl()}/bot${process.env.BOT_TOKEN}`, // Use dynamic Railway URL
   });
 });
 
@@ -2594,8 +2697,8 @@ app.get("/ping", (req, res) => {
 
 app.post("/setup-webhook", async (req, res) => {
   try {
-    const replitBaseUrl = getReplitUrl();
-    const correctWebhookUrl = `${replitBaseUrl}/bot${process.env.BOT_TOKEN}`;
+    const railwayBaseUrl = getRailwayUrl();
+    const correctWebhookUrl = `${railwayBaseUrl}/bot${process.env.BOT_TOKEN}`;
     console.log("🔧 Manual webhook setup to:", correctWebhookUrl);
     await bot.setWebHook(correctWebhookUrl);
     res.json({
@@ -2679,53 +2782,3 @@ app.get("/bot-status", async (req, res) => {
 });
 
 app.use("/public", express.static("public"));
-
-const PORT = process.env.PORT || 5000;
-const HOST = process.env.HOST || "0.0.0.0";
-
-const server = app.listen(PORT, HOST, () => {
-  console.log(`🚀 Server running on ${HOST}:${PORT}`);
-  console.log(`🔥 7-Day Money Flow automation ACTIVE!`);
-  console.log(`✅ Server is fully listening for incoming requests.`);
-});
-
-process.on("SIGTERM", () => {
-  console.log("SIGTERM received, shutting down gracefully");
-  server.close(() => {
-    console.log("Server closed");
-    process.exit(0);
-  });
-});
-
-process.on("SIGINT", () => {
-  console.log("SIGINT received, shutting down gracefully");
-  server.close(() => {
-    console.log("Server closed");
-    process.exit(0);
-  });
-});
-
-process.on("uncaughtException", (err) => {
-  console.error("Uncaught Exception:", err);
-  process.exit(1);
-});
-
-process.on("unhandledRejection", (reason, promise) => {
-  console.error("Unhandled Rejection at:", promise, "reason:", reason);
-  process.exit(1);
-});
-
-const contentScheduler = new ContentScheduler(bot);
-contentScheduler.start();
-
-console.log("🤖 Bot started successfully with 7-Day + 30-Day automation!");
-console.log("🚀 Features added:");
-console.log("   • Auto next-day reminders (24h delay)");
-console.log("   • Day 3 upsell automation (1h delay)");
-console.log("   • 30-day follow-up for results");
-console.log("   • Enhanced welcome sequence");
-console.log("   • 30-day extended content automation");
-console.log("   • Daily content delivery (9 AM Cambodia)");
-console.log("   • Evening motivation (6 PM Cambodia)");
-console.log("   • Weekly reviews (Sunday 8 PM Cambodia)");
-console.log("🔱 7-Day Money Flow Reset™ + 30-Day Extended Content READY!");
