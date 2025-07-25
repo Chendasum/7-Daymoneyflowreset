@@ -15,8 +15,8 @@ process.env.NODE_ICU_DATA = "/usr/share/nodejs/node-icu-data";
 process.env.LANG = "en_US.UTF-8";
 
 // --- Import Database Models ---
-const User = require("./models/User");
-const Progress = require("./models/Progress");
+const User = require("./User");
+const Progress = require("./Progress");
 
 // --- Import Command Modules ---
 const startCommand = require("./commands/start");
