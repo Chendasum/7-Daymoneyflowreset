@@ -19,36 +19,36 @@ const User = require("./User");
 const Progress = require("./Progress");
 
 // --- Import Command Modules ---
-const startCommand = require("./commands/start");
-const dailyCommands = require("./commands/daily");
-const paymentCommands = require("./commands/payment");
-const vipCommands = require("./commands/vip");
-const adminCommands = require("./commands/admin");
-const badgesCommands = require("./commands/badges");
-const quotesCommands = require("./commands/quotes");
-const bookingCommands = require("./commands/booking");
-const tierFeatures = require("./commands/tier-features");
-const marketingCommands = require("./commands/marketing");
-const marketingContent = require("./commands/marketing-content");
-const extendedContent = require("./commands/extended-content");
-const thirtyDayAdmin = require("./commands/30day-admin");
-const previewCommands = require("./commands/preview");
-const freeTools = require("./commands/free-tools");
-const financialQuiz = require("./commands/financial-quiz");
-const toolsTemplates = require("./commands/tools-templates");
+const startCommand = require("./start");
+const dailyCommands = require("./daily");
+const paymentCommands = require("./payment");
+const vipCommands = require("./vip");
+const adminCommands = require("./admin");
+const badgesCommands = require("./badges");
+const quotesCommands = require("./quotes");
+const bookingCommands = require("./booking");
+const tierFeatures = require("./tier-features");
+const marketingCommands = require("./marketing");
+const marketingContent = require("./marketing-content");
+const extendedContent = require("./extended-content");
+const thirtyDayAdmin = require("./30day-admin");
+const previewCommands = require("./preview");
+const freeTools = require("./free-tools");
+const financialQuiz = require("./financial-quiz");
+const toolsTemplates = require("./tools-templates");
 
 // --- Import Service Modules ---
-const scheduler = require("./services/scheduler");
-const analytics = require("./services/analytics");
-const celebrations = require("./services/celebrations");
-const progressBadges = require("./services/progress-badges");
-const emojiReactions = require("./services/emoji-reactions");
-const AccessControl = require("./services/access-control");
-const ContentScheduler = require("./services/content-scheduler");
-const ConversionOptimizer = require("./services/conversion-optimizer");
+const scheduler = require("./scheduler");
+const analytics = require("./analytics");
+const celebrations = require("./celebrations");
+const progressBadges = require("./progress-badges");
+const emojiReactions = require("./emoji-reactions");
+const AccessControl = require("./access-control");
+const ContentScheduler = require("./content-scheduler");
+const ConversionOptimizer = require("./conversion-optimizer");
 
 // --- Import Utility Modules ---
-const { sendLongMessage } = require("./utils/message-splitter");
+const { sendLongMessage } = require("./message-splitter");
 const { default: fetch } = require("node-fetch"); // Ensure node-fetch is imported correctly
 
 // Define a consistent message chunk size for splitting long messages
@@ -677,7 +677,7 @@ bot.on("message", async (msg) => {
 });
 
 // Progress Tracking Admin Commands
-const progressTracker = require("./commands/progress-tracker");
+const progressTracker = require("./progress-tracker");
 bot.onText(/\/admin_stuck/i, async (msg) => {
   if (isDuplicateMessage(msg)) return;
   try {
